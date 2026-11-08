@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   GraduationCap,
@@ -8,12 +8,14 @@ import {
   AlertCircle,
   Loader2,
   CheckCircle2,
+  Send,
+  RefreshCw,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import FormInput from '../components/FormInput'
 
 export default function Login() {
-  const { signIn, isConfigured } = useAuth()
+  const { signIn, resendVerificationEmail, isConfigured } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -26,6 +28,24 @@ export default function Login() {
   const [errors, setErrors] = useState({})
   const [loading, setLoading] = useState(false)
   const [authError, setAuthError] = useState('')
+
+  // Resend verification email state
+  const [isUnverifiedEmail, setIsUnverifiedEmail] = useState(false)
+  const [resendLoading, setResendLoading] = useState(false)
+  const [resendSuccess, setResendSuccess] = useState('')
+  const [resendError, setResendError] = useState('')
+  const [resendCooldown, setResendCooldown] = useState(0)
+
+  // Cooldown countdown timer
+  useEffect(() => {
+    let timer
+    if (resendCooldown > 0) {
+      timer = setInterval(() => {
+        setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0))
+      }, 1000)
+    }
+    return () => clearInterval(timer)
+  }, [resendCooldown])
 
   const validate = () => {
     const newErrors = {}
@@ -48,6 +68,9 @@ export default function Login() {
   const handleSubmit = async (e) => {
     e.preventDefault()
     setAuthError('')
+    setIsUnverifiedEmail(false)
+    setResendSuccess('')
+    setResendError('')
 
     if (!validate()) return
 
@@ -61,12 +84,43 @@ export default function Login() {
       if (msg.includes('Invalid login credentials')) {
         setAuthError('Invalid email or password. Please verify your credentials.')
       } else if (msg.includes('Email not confirmed')) {
-        setAuthError('Your email address has not been confirmed yet. Please check your inbox.')
+        setAuthError('Your email address has not been confirmed yet. Please verify your email before logging in.')
+        setIsUnverifiedEmail(true)
       } else {
         setAuthError(msg)
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleResendVerification = async () => {
+    if (!email.trim()) {
+      setResendError('Please enter your email address to receive the verification link.')
+      return
+    }
+
+    if (resendCooldown > 0 || resendLoading) return
+
+    setResendError('')
+    setResendSuccess('')
+
+    try {
+      setResendLoading(true)
+      await resendVerificationEmail(email)
+      setResendSuccess(`Verification email dispatched to ${email}. Please check your inbox and spam folder.`)
+      setResendCooldown(60) // 60-second cooldown to prevent spam / rate-limiting
+    } catch (err) {
+      console.error('Resend verification failed:', err)
+      const msg = err.message || 'Unable to resend verification email.'
+      if (msg.toLowerCase().includes('rate limit') || msg.toLowerCase().includes('security purposes')) {
+        setResendError('Rate limit exceeded: You can request a verification email only once per minute. Please wait.')
+        setResendCooldown(60)
+      } else {
+        setResendError(msg)
+      }
+    } finally {
+      setResendLoading(false)
     }
   }
 
@@ -88,13 +142,58 @@ export default function Login() {
 
         {/* Card */}
         <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200/80 shadow-sm">
+          {/* Main Error Alert */}
           {authError && (
             <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-sm flex items-start gap-3">
               <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
-              <div className="space-y-1">
+              <div className="space-y-1 w-full">
                 <p className="font-semibold text-red-900">Authentication Error</p>
                 <p className="text-xs text-red-700 leading-relaxed">{authError}</p>
+
+                {/* Option to resend verification link when email is unverified */}
+                {isUnverifiedEmail && (
+                  <div className="mt-3 pt-3 border-t border-red-200/80 flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={handleResendVerification}
+                      disabled={resendLoading || resendCooldown > 0}
+                      className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:text-blue-900 disabled:text-slate-400 disabled:cursor-not-allowed self-start transition-colors"
+                    >
+                      {resendLoading ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Dispatching verification link...</span>
+                        </>
+                      ) : resendCooldown > 0 ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin text-slate-400" />
+                          <span>Resend available in {resendCooldown}s</span>
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-3.5 h-3.5" />
+                          <span>Resend verification email to this address</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                )}
               </div>
+            </div>
+          )}
+
+          {/* Resend Status Notifications */}
+          {resendSuccess && (
+            <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs flex items-start gap-2.5">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+              <p className="leading-relaxed font-medium">{resendSuccess}</p>
+            </div>
+          )}
+
+          {resendError && (
+            <div className="mb-6 p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-xs flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="leading-relaxed font-medium">{resendError}</p>
             </div>
           )}
 
@@ -118,6 +217,8 @@ export default function Login() {
                 setEmail(e.target.value)
                 if (errors.email) setErrors((prev) => ({ ...prev, email: '' }))
                 if (authError) setAuthError('')
+                if (resendSuccess) setResendSuccess('')
+                if (resendError) setResendError('')
               }}
               error={errors.email}
               icon={Mail}

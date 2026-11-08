@@ -66,9 +66,9 @@ export default function ForgotPassword() {
               <div className="w-12 h-12 rounded-full bg-emerald-50 text-emerald-600 mx-auto flex items-center justify-center">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
-              <h3 className="text-lg font-bold text-slate-900">Check Your Email</h3>
+              <h3 className="text-lg font-bold text-slate-900">Recovery Link Dispatched</h3>
               <p className="text-sm text-slate-600 leading-relaxed">
-                If an account exists for <span className="font-semibold text-slate-800">{email}</span>, a secure password reset link has been dispatched.
+                If an account exists for <span className="font-semibold text-slate-800">{email}</span>, a secure password recovery link has been dispatched. Click the link in the email to set your new password.
               </p>
               <div className="pt-4">
                 <Link

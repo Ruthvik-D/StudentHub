@@ -10,6 +10,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true)
   const [profileLoading, setProfileLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [isPasswordRecovery, setIsPasswordRecovery] = useState(false)
 
   // Fetch student profile from public.profiles
   const fetchProfile = useCallback(async (userId, userMetadata = null) => {
@@ -37,12 +38,11 @@ export function AuthProvider({ children }) {
         // If trigger has not run yet or profile row doesn't exist, try creating/upserting it
         const fallbackName = userMetadata?.full_name || ''
         const fallbackDept = userMetadata?.department || ''
+        // Omit created_at & updated_at to respect column-level database permissions
         const newProfile = {
           id: userId,
           full_name: fallbackName,
           department: fallbackDept,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
         }
 
         const { data: upsertData, error: upsertError } = await supabase
@@ -117,7 +117,9 @@ export function AuthProvider({ children }) {
         const currentUser = newSession?.user ?? null
         setUser(currentUser)
 
-        if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        if (event === 'PASSWORD_RECOVERY') {
+          setIsPasswordRecovery(true)
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
           if (currentUser) {
             await fetchProfile(currentUser.id, currentUser.user_metadata)
           }
@@ -125,6 +127,7 @@ export function AuthProvider({ children }) {
           setProfile(null)
           setUser(null)
           setSession(null)
+          setIsPasswordRecovery(false)
         }
         setLoading(false)
       }
@@ -219,7 +222,7 @@ export function AuthProvider({ children }) {
     }
 
     const trimmedEmail = email.trim().toLowerCase()
-    const redirectUrl = `${window.location.origin}/login`
+    const redirectUrl = `${window.location.origin}/reset-password`
 
     const { data, error: resetError } = await supabase.auth.resetPasswordForEmail(
       trimmedEmail,
@@ -228,6 +231,46 @@ export function AuthProvider({ children }) {
 
     if (resetError) {
       throw resetError
+    }
+
+    return data
+  }
+
+  // Update password during recovery session or authenticated session
+  const updatePassword = async (newPassword) => {
+    if (!isSupabaseConfigured) {
+      throw new Error('Supabase is not configured. Please add your credentials to the .env file.')
+    }
+
+    const { data, error: updateError } = await supabase.auth.updateUser({
+      password: newPassword,
+    })
+
+    if (updateError) {
+      throw updateError
+    }
+
+    setIsPasswordRecovery(false)
+    return data
+  }
+
+  // Resend email verification link
+  const resendVerificationEmail = async (email) => {
+    if (!isSupabaseConfigured) {
+      throw new Error('Supabase is not configured. Please add your credentials to the .env file.')
+    }
+
+    const trimmedEmail = email.trim().toLowerCase()
+    const { data, error: resendError } = await supabase.auth.resend({
+      type: 'signup',
+      email: trimmedEmail,
+      options: {
+        emailRedirectTo: `${window.location.origin}/dashboard`,
+      },
+    })
+
+    if (resendError) {
+      throw resendError
     }
 
     return data
@@ -246,13 +289,12 @@ export function AuthProvider({ children }) {
     const trimmedName = fullName.trim()
     const trimmedDept = department ? department.trim() : ''
 
-    // 1. Update public.profiles in PostgreSQL
+    // 1. Update public.profiles in PostgreSQL (database triggers maintain updated_at)
     const { data: updatedProfile, error: profileError } = await supabase
       .from('profiles')
       .update({
         full_name: trimmedName,
         department: trimmedDept,
-        updated_at: new Date().toISOString(),
       })
       .eq('id', user.id)
       .select()
@@ -267,7 +309,6 @@ export function AuthProvider({ children }) {
           id: user.id,
           full_name: trimmedName,
           department: trimmedDept,
-          updated_at: new Date().toISOString(),
         })
         .select()
         .single()
@@ -302,11 +343,14 @@ export function AuthProvider({ children }) {
     loading,
     profileLoading,
     error,
+    isPasswordRecovery,
     isConfigured: isSupabaseConfigured,
     signUp,
     signIn,
     signOut,
     resetPassword,
+    updatePassword,
+    resendVerificationEmail,
     updateProfile,
     refreshProfile: () => user && fetchProfile(user.id, user.user_metadata),
   }
